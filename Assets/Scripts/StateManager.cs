@@ -7,6 +7,21 @@ using System.Linq;
 public class StateManager : MonoBehaviour {
     Board board = new Board(16, 16);
     HashSet<Square> lockedSquares = new HashSet<Square>();
+    struct MoveMetaData
+    {
+        public Move move;
+        public Square nextSquare;
+        public bool wasMoveApplied;
+        public bool isBounce;
+
+        public MoveMetaData(Move move, Square nextSquare, bool moveApplied = false, bool isBounce = false)
+        {
+            this.move = move;
+            this.nextSquare = nextSquare;
+            this.wasMoveApplied = moveApplied;
+            this.isBounce = isBounce;
+        }
+    }
 
     void ResetLockedSquares()
     {
@@ -36,99 +51,86 @@ public class StateManager : MonoBehaviour {
     void ResolveMovement(Move[] moves)
     {
         ResetLockedSquares();
-        Square[] squaresWithStationaryPieces =
+        IEnumerable<Square> squaresWithStationaryPieces =
             moves.Where(move => move.direction == Move.Direction.NONE)
                  .Select(move => move.piece.currentSquare)
                  .ToArray();
 
         LockSquares(squaresWithStationaryPieces);
 
-        Tuple<Move, Square>[] movesToConsider =
+        MoveMetaData[] movesToConsider =
             moves.Where(move => move.direction != Move.Direction.NONE)
-                 .Select(move => Tuple.Create(move, board.NextSquare(move)))
+                 .Select(move => new MoveMetaData(move, board.NextSquare(move)))
                  .ToArray();
 
-        HashSet<Move> potentialBounces = new HashSet<Move>();
-        HashSet<Move> movesRemoved = new HashSet<Move>();
         bool hasInvalidMoves = true;
 
         while (hasInvalidMoves)
         {
-
+            HashSet<int> moveIndicesRemoved = new HashSet<int>();
             for (int i = 0; i < movesToConsider.Length; i++)
             {
-                Tuple<Move, Square> moveAndNextSquare = movesToConsider[i];
-                Move move = moveAndNextSquare.Item1;
-                Square nextSquare = moveAndNextSquare.Item2;
-
+                MoveMetaData moveData = movesToConsider[i];
                 // Consider entering a locked square
-                bool isNextSquareLocked = IsSquareLocked(nextSquare);
+                bool isNextSquareLocked = IsSquareLocked(moveData.nextSquare);
                 if (isNextSquareLocked)
                 {
-                    LockSquare(move.piece.currentSquare);
-                    movesRemoved.Add(move);
+                    LockSquare(moveData.move.piece.currentSquare);
+                    moveIndicesRemoved.Add(i);
                     continue;
                 }
 
                 // Consider all conflicting moves to the next square
                 for (int j = i + 1; j < movesToConsider.Length; j++)
                 {
-                    Tuple<Move, Square> otherMoveAndNextSquare = movesToConsider[i];
-                    Move otherMove = otherMoveAndNextSquare.Item1;
-                    Square otherNextSquare = otherMoveAndNextSquare.Item2;
-
+                    MoveMetaData otherMoveData = movesToConsider[j];
                     // Consider bounces
-                    if (nextSquare == otherNextSquare)
+                    if (moveData.nextSquare == otherMoveData.nextSquare)
                     {
-                        LockSquare(move.piece.currentSquare);
-                        LockSquare(otherMove.piece.currentSquare);
-                        potentialBounces.Add(move);
-                        potentialBounces.Add(otherMove);
-                        movesRemoved.Add(move);
-                        movesRemoved.Add(otherMove);
+                        LockSquare(moveData.move.piece.currentSquare);
+                        LockSquare(otherMoveData.move.piece.currentSquare);
+                        moveData.isBounce = true; // mark as a potential bounce for now
+                        otherMoveData.isBounce = true; // mark as a potential bounce for now
+                        moveIndicesRemoved.Add(i);
+                        moveIndicesRemoved.Add(j);
                     }
 
                     // Consider Opposing movement
-                    if (nextSquare == otherMove.piece.currentSquare &&
-                        move.piece.currentSquare == otherNextSquare)
+                    if (moveData.nextSquare == otherMoveData.move.piece.currentSquare &&
+                        moveData.move.piece.currentSquare == otherMoveData.nextSquare)
                     {
-                        LockSquare(move.piece.currentSquare);
-                        LockSquare(otherMove.piece.currentSquare);
-                        movesRemoved.Add(move);
-                        movesRemoved.Add(otherMove);
+                        LockSquare(moveData.move.piece.currentSquare);
+                        LockSquare(otherMoveData.move.piece.currentSquare);
+                        moveIndicesRemoved.Add(i);
+                        moveIndicesRemoved.Add(j);
                     }
                 }
             }
 
             int numConsideredMove = movesToConsider.Length;
             movesToConsider = movesToConsider
-                .Where(moveAndNextMove => !movesRemoved.Contains(moveAndNextMove.Item1)).ToArray();
+                .Where((moveData, index)=> !moveIndicesRemoved.Contains(index))
+                .ToArray();
 
             hasInvalidMoves = numConsideredMove != movesToConsider.Length;
         }
 
         // apply valid moves
+        MoveMetaData[] validMoves = movesToConsider;
+        MoveMetaData[] completedMoves =
+            validMoves
+                .Select(moveData =>
+                {
+                    Debug.Assert(!IsSquareLocked(moveData.nextSquare)); // sanity check
+                    moveData.wasMoveApplied = true;
+                    return moveData;
+                })
+                .ToArray();
 
         // find out the real bounces
 
         // return
 
-
-    }
-
-    void LockSquares(Square[] square)
-    {
-
-    }
-
-    void IsInvalidMove()
-    {
-
-    }
-
-
-    void ResolveCombat()
-    {
 
     }
 }
