@@ -5,25 +5,54 @@ using System;
 using System.Linq;
 
 public class StateManager : MonoBehaviour {
-    Board board = new Board(16, 16);
     HashSet<Square> lockedSquares = new HashSet<Square>();
-    struct MoveMetaData
+
+    void Start()
+    {
+        CalculateNextState();
+    }
+
+    class MoveMetaData
     {
         public Move move;
         public Square nextSquare;
-        public bool wasMoveApplied;
+        public bool shouldMove;
         public bool isBounce;
         public bool isStationary;
 
-        public MoveMetaData(Move move, Square nextSquare, bool moveApplied = false, bool isBounce = false, bool stationary = false)
+        public MoveMetaData(Move move, Square nextSquare, bool shouldMove = false, bool isBounce = false, bool stationary = false)
         {
             this.move = move;
             this.nextSquare = nextSquare;
-            this.wasMoveApplied = moveApplied;
+            this.shouldMove = shouldMove;
             this.isBounce = isBounce;
             this.isStationary = stationary;
         }
+
+        public override string ToString()
+        {
+            return String.Format(
+                "[Move Piece {0}, currentSq {1}, nextSq {2}, shouldMove {3}, isBounce {4}, isStationary {5}]",
+                move.piece.uid,
+                move.piece.currentSquare,
+                nextSquare,
+                shouldMove,
+                isBounce,
+                isStationary
+            );
+        }
     }
+
+    // FOR TESTING:
+
+    Board board = new Board(6, 6);                                     //-------------------------------
+    Piece A_PIECE_1 = new Piece("uida1", Player.A, new Square(0, 0));  //| A1 |    |    |    |    |    |
+    Piece A_PIECE_2 = new Piece("uida2", Player.A, new Square(2, 2));  //|    |    |    | A3 |    |    |
+    Piece A_PIECE_3 = new Piece("uida3", Player.A, new Square(1, 3));  //|    |    | A2 |    |    |    |
+                                                                       //|    |    | B1 | B2 | B3 |    |
+    Piece B_PIECE_1 = new Piece("uidb1", Player.B, new Square(3, 2));  //|    |    |    |    |    |    |
+    Piece B_PIECE_2 = new Piece("uidb2", Player.B, new Square(3, 3));  //|    |    |    |    |    |    |
+    Piece B_PIECE_3 = new Piece("uidb3", Player.B, new Square(3, 4));  //-------------------------------
 
     void ResetLockedSquares()
     {
@@ -48,6 +77,24 @@ public class StateManager : MonoBehaviour {
 
     void CalculateNextState()
     {
+        Move[] moves = new Move[]
+        {
+            new Move(A_PIECE_1),
+            new Move(A_PIECE_2, Move.Direction.DOWN),
+            new Move(A_PIECE_3, Move.Direction.DOWN),
+            new Move(B_PIECE_1, Move.Direction.UP),
+            new Move(B_PIECE_2, Move.Direction.UP),
+            new Move(B_PIECE_3, Move.Direction.LEFT),
+        };
+        MoveMetaData[] resolvedMoveDatas = ResolveMovement(moves);
+        foreach (MoveMetaData resolveData in resolvedMoveDatas)
+        {
+            Debug.Log(resolveData);
+        }
+        foreach (Square s in lockedSquares)
+        {
+            Debug.Log(s);
+        }
     }
 
     MoveMetaData[] ResolveMovement(Move[] moves)
@@ -64,11 +111,14 @@ public class StateManager : MonoBehaviour {
         moveIndices = moveIndices.Where(mInd =>
         {
             MoveMetaData moveData = moveMetaDatas[mInd];
-            bool isStationary = moveData.move.direction == Move.Direction.NONE;
+            bool isStationary =
+                moveData.move.direction == Move.Direction.NONE ||
+                moveData.move.piece.currentSquare == moveData.nextSquare;
             if (isStationary) LockSquare(moveData.move.piece.currentSquare);
             moveData.isStationary = isStationary;
             return !isStationary;
         }).ToList();
+
 
         bool hasInvalidMoves = true;
 
@@ -78,7 +128,7 @@ public class StateManager : MonoBehaviour {
             moveIndices = moveIndices.Where((mInd, index) =>
             {
                 MoveMetaData moveData = moveMetaDatas[mInd];
-                bool isValidMove = true;
+                bool isValidMove = !moveData.isBounce;
                 //Consider entering a locked square
                 if (IsSquareLocked(moveData.nextSquare))
                 {
@@ -87,8 +137,9 @@ public class StateManager : MonoBehaviour {
                 }
 
                 //Consider interactions with other pieces
-                for (int i = index + 1; i < moveIndices.Count; i++)
+                for (int i = 0; i < moveIndices.Count; i++) // can optimize
                 {
+                    if (i == index) continue;
                     int otherIndex = moveIndices[i]; // other move index for consideration
                     MoveMetaData otherMoveData = moveMetaDatas[otherIndex];
                     if (moveData.nextSquare == otherMoveData.nextSquare)
@@ -123,8 +174,7 @@ public class StateManager : MonoBehaviour {
             Debug.Assert(!IsSquareLocked(moveData.nextSquare)); // sanity check
             Debug.Assert(!moveData.isStationary); // sanity check
             Debug.Assert(!moveData.isBounce); // sanity check
-
-            moveData.wasMoveApplied = true;
+            moveData.shouldMove = true;
         });
 
         // find out the real bounces

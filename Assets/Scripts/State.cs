@@ -15,8 +15,27 @@ namespace State {
         public int def;
         public Type type;
 
-        public string id; // unique id for a piece
+        public string uid; // unique id for a piece
         public Square currentSquare;
+
+        public Piece(
+            string uid,
+            Player owner,
+            Square square,
+            Type type = Type.SWORD,
+            int health = 100,
+            int attack = 5,
+            int def = 5
+        )
+        {
+            this.uid = uid;
+            this.owner = owner;
+            this.currentSquare = square;
+            this.health = health;
+            this.attack = attack;
+            this.def = def;
+            this.type = type;
+        }
     }
 
     struct Move
@@ -24,6 +43,12 @@ namespace State {
         public enum Direction { UP, DOWN, LEFT, RIGHT, NONE }
         public Piece piece;
         public Direction direction;
+
+        public Move(Piece piece, Direction direction = Move.Direction.NONE)
+        {
+            this.piece = piece;
+            this.direction = direction;
+        }
     }
 
     struct Square
@@ -52,12 +77,17 @@ namespace State {
 
         public static bool operator ==(Square a, Square b)
         {
-            return a.row == b.row && b.col == b.col;
+            return a.row == b.row && a.col == b.col;
         }
 
         public static bool operator !=(Square a, Square b)
         {
             return !(a == b);
+        }
+
+        public override string ToString()
+        {
+            return string.Format("[Square row:{0} col:{1}]", row, col);
         }
     }
 
@@ -69,8 +99,8 @@ namespace State {
 
         public Board(int rows, int cols)
         {
-            rows = numRows;
-            cols = numCols;
+            numRows = rows;
+            numCols = cols;
         }
 
         public Square NextSquare(Square currentSquare, Move.Direction direction)
