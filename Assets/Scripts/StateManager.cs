@@ -13,13 +13,15 @@ public class StateManager : MonoBehaviour {
         public Square nextSquare;
         public bool wasMoveApplied;
         public bool isBounce;
+        public bool isStationary;
 
-        public MoveMetaData(Move move, Square nextSquare, bool moveApplied = false, bool isBounce = false)
+        public MoveMetaData(Move move, Square nextSquare, bool moveApplied = false, bool isBounce = false, bool stationary = false)
         {
             this.move = move;
             this.nextSquare = nextSquare;
             this.wasMoveApplied = moveApplied;
             this.isBounce = isBounce;
+            this.isStationary = stationary;
         }
     }
 
@@ -48,89 +50,92 @@ public class StateManager : MonoBehaviour {
     {
     }
 
-    void ResolveMovement(Move[] moves)
+    MoveMetaData[] ResolveMovement(Move[] moves)
     {
         ResetLockedSquares();
-        IEnumerable<Square> squaresWithStationaryPieces =
-            moves.Where(move => move.direction == Move.Direction.NONE)
-                 .Select(move => move.piece.currentSquare)
+
+        MoveMetaData[] moveMetaDatas =
+            moves.Select(move => new MoveMetaData(move, board.NextSquare(move)))
                  .ToArray();
 
-        LockSquares(squaresWithStationaryPieces);
+        List<int> moveIndices = Enumerable.Range(0, moves.Length).ToList();
 
-        MoveMetaData[] movesToConsider =
-            moves.Where(move => move.direction != Move.Direction.NONE)
-                 .Select(move => new MoveMetaData(move, board.NextSquare(move)))
-                 .ToArray();
+        // Consider stationary pieces
+        moveIndices = moveIndices.Where(mInd =>
+        {
+            MoveMetaData moveData = moveMetaDatas[mInd];
+            bool isStationary = moveData.move.direction == Move.Direction.NONE;
+            if (isStationary) LockSquare(moveData.move.piece.currentSquare);
+            moveData.isStationary = isStationary;
+            return !isStationary;
+        }).ToList();
 
         bool hasInvalidMoves = true;
 
         while (hasInvalidMoves)
         {
-            HashSet<int> moveIndicesRemoved = new HashSet<int>();
-            for (int i = 0; i < movesToConsider.Length; i++)
+            int previousLength = moveIndices.Count;
+            moveIndices = moveIndices.Where((mInd, index) =>
             {
-                MoveMetaData moveData = movesToConsider[i];
-                // Consider entering a locked square
-                bool isNextSquareLocked = IsSquareLocked(moveData.nextSquare);
-                if (isNextSquareLocked)
+                MoveMetaData moveData = moveMetaDatas[mInd];
+                bool isValidMove = true;
+                //Consider entering a locked square
+                if (IsSquareLocked(moveData.nextSquare))
                 {
                     LockSquare(moveData.move.piece.currentSquare);
-                    moveIndicesRemoved.Add(i);
-                    continue;
+                    isValidMove = false;
                 }
 
-                // Consider all conflicting moves to the next square
-                for (int j = i + 1; j < movesToConsider.Length; j++)
+                //Consider interactions with other pieces
+                for (int i = index + 1; i < moveIndices.Count; i++)
                 {
-                    MoveMetaData otherMoveData = movesToConsider[j];
-                    // Consider bounces
+                    int otherIndex = moveIndices[i]; // other move index for consideration
+                    MoveMetaData otherMoveData = moveMetaDatas[otherIndex];
                     if (moveData.nextSquare == otherMoveData.nextSquare)
                     {
                         LockSquare(moveData.move.piece.currentSquare);
                         LockSquare(otherMoveData.move.piece.currentSquare);
                         moveData.isBounce = true; // mark as a potential bounce for now
                         otherMoveData.isBounce = true; // mark as a potential bounce for now
-                        moveIndicesRemoved.Add(i);
-                        moveIndicesRemoved.Add(j);
+                        isValidMove = false;
                     }
 
                     // Consider Opposing movement
                     if (moveData.nextSquare == otherMoveData.move.piece.currentSquare &&
-                        moveData.move.piece.currentSquare == otherMoveData.nextSquare)
+                       moveData.move.piece.currentSquare == otherMoveData.nextSquare)
                     {
                         LockSquare(moveData.move.piece.currentSquare);
                         LockSquare(otherMoveData.move.piece.currentSquare);
-                        moveIndicesRemoved.Add(i);
-                        moveIndicesRemoved.Add(j);
+                        isValidMove = false;
                     }
+
                 }
-            }
-
-            int numConsideredMove = movesToConsider.Length;
-            movesToConsider = movesToConsider
-                .Where((moveData, index)=> !moveIndicesRemoved.Contains(index))
-                .ToArray();
-
-            hasInvalidMoves = numConsideredMove != movesToConsider.Length;
+                return isValidMove;
+            }).ToList();
+            hasInvalidMoves = moveIndices.Count != previousLength;
         }
 
         // apply valid moves
-        MoveMetaData[] validMoves = movesToConsider;
-        MoveMetaData[] completedMoves =
-            validMoves
-                .Select(moveData =>
-                {
-                    Debug.Assert(!IsSquareLocked(moveData.nextSquare)); // sanity check
-                    moveData.wasMoveApplied = true;
-                    return moveData;
-                })
-                .ToArray();
+        List<int> validMoveIndices = moveIndices;
+        validMoveIndices.ForEach(validMoveIndex =>
+        {
+            MoveMetaData moveData = moveMetaDatas[validMoveIndex];
+            Debug.Assert(!IsSquareLocked(moveData.nextSquare)); // sanity check
+            Debug.Assert(!moveData.isStationary); // sanity check
+            Debug.Assert(!moveData.isBounce); // sanity check
+
+            moveData.wasMoveApplied = true;
+        });
 
         // find out the real bounces
+        for (int i = 0; i < moveMetaDatas.Length; i++)
+        {
+            MoveMetaData moveData = moveMetaDatas[i];
+            if (!moveData.isBounce) continue;
+            moveData.isBounce = !IsSquareLocked(moveData.nextSquare);
+        }
 
         // return
-
-
+        return moveMetaDatas;
     }
 }
